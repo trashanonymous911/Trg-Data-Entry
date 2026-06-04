@@ -1,0 +1,416 @@
+import { useState, useEffect, useCallback } from 'react'
+import { ACTIVITIES, FINANCIAL_YEARS, MONTHS } from '../lib/constants'
+import { supabase, fetchCumulativeAchievements, getCurrentFY } from '../lib/supabase'
+import {
+  aggregateEntries, calcAchievementPct, calcBalance,
+  filterByMonth, filterByActivity
+} from '../utils/calculations'
+import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import ShareModal from '../components/ShareModal'
+
+function getBarFill(pct) {
+  if (pct >= 100) return 'var(--prog-done)'
+  if (pct >= 75)  return 'var(--prog-good)'
+  if (pct >= 50)  return 'var(--prog-mid)'
+  return 'var(--prog-low)'
+}
+
+function BadgeCell({ pct }) {
+  const color = pct >= 100 ? 'var(--prog-done)' : pct >= 75 ? 'var(--prog-good)' : pct >= 50 ? 'var(--prog-mid)' : 'var(--prog-low)'
+  const text  = pct >= 100 ? 'Met' : pct >= 75 ? 'On Track' : pct >= 50 ? 'In Progress' : 'Below'
+  return <span style={{ color, fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', border: '1px solid var(--c-border-dark)', padding: '2px 7px', borderRadius: 4 }}>{text}</span>
+}
+
+export default function Dashboard() {
+  const [financialYear,    setFinancialYear]    = useState(getCurrentFY())
+  const [selectedMonth,    setSelectedMonth]    = useState('')
+  const [selectedActivity, setSelectedActivity] = useState('')
+  const [allEntries,       setAllEntries]       = useState([])
+  const [targets,          setTargets]          = useState({})
+  const [loading,          setLoading]          = useState(true)
+  const [showShare,        setShowShare]        = useState(false)
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const entries = await fetchCumulativeAchievements(financialYear)
+      setAllEntries(entries)
+      const { data: td } = await supabase.from('annual_targets').select('*').eq('financial_year', financialYear)
+      if (td) {
+        const t = {}
+        for (const row of td) {
+          if (!t[row.activity_id]) t[row.activity_id] = {}
+          t[row.activity_id][row.target_key] = row.target_value
+        }
+        setTargets(t)
+      }
+    } catch { /* offline */ }
+    setLoading(false)
+  }, [financialYear])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  function getTarget(activityId, fieldKey) {
+    return targets?.[activityId]?.[fieldKey]
+      ?? ACTIVITIES.find(a => a.id === activityId)?.targets.find(t => t.key === fieldKey)?.defaultValue
+      ?? 0
+  }
+
+  const filteredEntries = (() => {
+    let e = allEntries
+    if (selectedMonth)    e = filterByMonth(e, Number(selectedMonth))
+    if (selectedActivity) e = filterByActivity(e, selectedActivity)
+    return e
+  })()
+
+  const cumul = aggregateEntries(filteredEntries)
+
+  const tableRows = ACTIVITIES.map(a => {
+    const target      = getTarget(a.id, a.achievementKey)
+    const achievement = cumul[a.id]?.[a.achievementKey] || 0
+    const balance     = calcBalance(achievement, target)
+    const pct         = calcAchievementPct(achievement, target)
+    return { activity: a, target, achievement, balance, pct }
+  })
+
+  // KPI values
+  const totalPersonnel =
+    (cumul['sdrf_training']?.personnel_trained    || 0) +
+    (cumul['inter_agency']?.personnel_trained     || 0) +
+    (cumul['boatmen_training']?.personnel_trained || 0) +
+    (cumul['ncc_training']?.personnel_trained     || 0) +
+    (cumul['nss_training']?.personnel_trained     || 0)
+
+  const totalMandays =
+    (cumul['sdrf_training']?.mandays || 0) +
+    (cumul['inter_agency']?.mandays  || 0)
+
+  const totalMock =
+    (cumul['railway_mock']?.conducted  || 0) +
+    (cumul['district_mock']?.conducted || 0) +
+    (cumul['ropeway_mock']?.conducted  || 0)
+
+  const kpis = [
+    { label: 'Personnel Trained',  value: totalPersonnel },
+    { label: 'Mandays Generated',  value: totalMandays },
+    { label: 'CAP Conducted',      value: cumul['cap']?.programmes_conducted || 0 },
+    { label: 'SSP Conducted',      value: cumul['ssp']?.programmes_conducted || 0 },
+    { label: 'Mock Exercises',     value: totalMock },
+    { label: 'Innovations',        value: cumul['innovations']?.count || 0 },
+    { label: 'BFRC Pending',       value: cumul['bfrc']?.pending || 0 },
+    { label: 'Validation Pending', value: Math.max(0, getTarget('online_validation', 'completed_today') - (cumul['online_validation']?.completed_today || 0)) },
+  ]
+
+  // Monthly summary
+  const monthlySummary = MONTHS.map((name, idx) => {
+    const me   = filterByMonth(allEntries, idx + 1)
+    const mc   = aggregateEntries(me)
+    return {
+      name,
+      personnel: (mc['sdrf_training']?.personnel_trained || 0) + (mc['inter_agency']?.personnel_trained || 0) + (mc['boatmen_training']?.personnel_trained || 0),
+      mandays:   (mc['sdrf_training']?.mandays || 0) + (mc['inter_agency']?.mandays || 0),
+      cap:       mc['cap']?.programmes_conducted || 0,
+      ssp:       mc['ssp']?.programmes_conducted || 0,
+      hasData:   me.length > 0,
+    }
+  })
+
+  // ── Exports ──
+  function exportExcel() {
+    const rows = tableRows.map(r => ({
+      Activity: r.activity.name,
+      Target: r.target,
+      Achievement: r.achievement,
+      Balance: r.balance <= 0 ? `+${Math.abs(r.balance)} Surplus` : r.balance,
+      'Achievement %': `${r.pct}%`,
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Target Achievement')
+    const ms = XLSX.utils.json_to_sheet(monthlySummary.map(m => ({ Month: m.name, Personnel: m.personnel, Mandays: m.mandays, CAP: m.cap, SSP: m.ssp })))
+    XLSX.utils.book_append_sheet(wb, ms, 'Monthly Summary')
+    XLSX.writeFile(wb, `NDRF_Training_${financialYear}_${TODAY()}.xlsx`)
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF({ orientation: 'landscape' })
+    doc.setFontSize(15); doc.setTextColor(0, 32, 96)
+    doc.text('NDRF Training Branch — Annual Target Achievement Report', 14, 16)
+    doc.setFontSize(9); doc.setTextColor(100)
+    doc.text(`Financial Year: ${financialYear}   Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 23)
+    autoTable(doc, {
+      startY: 28,
+      head: [['Activity', 'Target', 'Achievement', 'Balance', 'Achvmt %']],
+      body: tableRows.map(r => [
+        r.activity.name, r.target, r.achievement,
+        r.balance <= 0 ? `+${Math.abs(r.balance)} Surplus` : r.balance,
+        `${r.pct}%`
+      ]),
+      headStyles: { fillColor: [0, 32, 96], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8 },
+      alternateRowStyles: { fillColor: [238, 242, 255] },
+    })
+    doc.addPage()
+    doc.setFontSize(12); doc.setTextColor(0, 32, 96)
+    doc.text('Monthly Summary', 14, 16)
+    autoTable(doc, {
+      startY: 22,
+      head: [['Month', 'Personnel', 'Mandays', 'CAP', 'SSP']],
+      body: monthlySummary.map(m => [m.name, m.personnel, m.mandays, m.cap, m.ssp]),
+      headStyles: { fillColor: [0, 32, 96], fontSize: 8 },
+      bodyStyles: { fontSize: 9 },
+    })
+    doc.save(`NDRF_Training_${financialYear}.pdf`)
+  }
+
+  function TODAY() { return new Date().toISOString().split('T')[0] }
+
+  return (
+    <div>
+      {/* ── Filter bar ── */}
+      <div className="filter-bar">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, maxWidth: 680, margin: '0 auto' }}>
+          {[
+            { label: 'Financial Year', value: financialYear, onChange: setFinancialYear,
+              options: FINANCIAL_YEARS.map(fy => ({ value: fy, label: fy })) },
+            { label: 'Month', value: selectedMonth, onChange: setSelectedMonth,
+              options: [{ value: '', label: 'All Months' }, ...MONTHS.map((m, i) => ({ value: i + 1, label: m }))] },
+            { label: 'Activity', value: selectedActivity, onChange: setSelectedActivity,
+              options: [{ value: '', label: 'All Activities' }, ...ACTIVITIES.map(a => ({ value: a.id, label: a.name }))] },
+          ].map(f => (
+            <div key={f.label}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{f.label}</div>
+              <select className="field-input" style={{ padding: '7px 10px', fontSize: 12 }}
+                value={f.value} onChange={e => f.onChange(e.target.value)}>
+                {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 880, margin: '0 auto', padding: '20px 16px 40px' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 40, marginBottom: 16, animation: 'pulse 1.5s ease infinite' }}>📊</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>Loading dashboard…</div>
+          </div>
+        ) : (
+          <>
+            {/* ── KPI grid ── */}
+            <div className="section-label">Overview · {financialYear}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 1, background: 'var(--c-border)', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden', marginBottom: 28 }}>
+              {kpis.map(k => (
+                <div key={k.label} style={{ background: 'var(--c-white)', padding: '16px' }}>
+                  <div className="kpi-value">{k.value.toLocaleString('en-IN')}</div>
+                  <div className="kpi-label" style={{ marginTop: 6 }}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Export / Share row ── */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowShare(true)} className="btn-secondary">
+                <WaIcon /> Share Report
+              </button>
+              <button className="btn-secondary" onClick={exportExcel}>Excel</button>
+              <button className="btn-secondary" onClick={exportPDF}>PDF</button>
+              <button className="btn-secondary" onClick={loadData} style={{ marginLeft: 'auto' }}>Refresh</button>
+            </div>
+
+            {/* ── Achievement table ── */}
+            <div className="section-label">Target Achievement</div>
+            <div style={{ background: 'var(--c-white)', borderRadius: 'var(--r-md)', border: '1px solid var(--c-border)', overflow: 'hidden', marginBottom: 28 }}>
+              {/* Mobile list */}
+              <div style={{ display: 'block' }} className="sm:hidden">
+                {tableRows.map(({ activity, target, achievement, balance, pct }) => (
+                  <div key={activity.id} style={{ borderBottom: '1px solid var(--c-border)', padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-primary)' }}>{activity.name}</span>
+                      <BadgeCell pct={pct} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: 'var(--c-border)', border: '1px solid var(--c-border)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                      {[
+                        { l: 'Target',  v: target },
+                        { l: 'Done',    v: achievement },
+                        { l: 'Balance', v: balance <= 0 ? `+${Math.abs(balance)}` : balance },
+                        { l: 'Ach%',    v: `${pct}%` },
+                      ].map(s => (
+                        <div key={s.l} style={{ background: 'var(--c-neutral)', padding: '6px 4px', textAlign: 'center' }}>
+                          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 8, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--c-secondary)', marginBottom: 2 }}>{s.l}</div>
+                          <div style={{ fontFamily: "'Public Sans', sans-serif", fontSize: 13, fontWeight: 700, color: 'var(--c-primary)' }}>{typeof s.v === 'number' ? s.v.toLocaleString('en-IN') : s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="prog-wrap" style={{ marginBottom: 0 }}>
+                      <div className="prog-fill" style={{ width: `${Math.min(pct, 100)}%`, background: getBarFill(pct) }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden sm:block" style={{ overflowX: 'auto' }}>
+                <table className="ach-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Activity</th>
+                      <th>Target</th>
+                      <th>Achievement</th>
+                      <th>Balance</th>
+                      <th>Ach%</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map(({ activity, target, achievement, balance, pct }) => (
+                      <tr key={activity.id}>
+                        <td style={{ fontWeight: 600, textAlign: 'left', color: 'var(--c-primary)' }}>{activity.name}</td>
+                        <td style={{ fontWeight: 600, color: 'var(--c-primary)' }}>{target.toLocaleString('en-IN')}</td>
+                        <td style={{ fontWeight: 700, color: 'var(--c-primary)' }}>{achievement.toLocaleString('en-IN')}</td>
+                        <td style={{ fontWeight: 600, color: balance <= 0 ? 'var(--prog-good)' : 'var(--c-secondary)' }}>
+                          {balance <= 0 ? `+${Math.abs(balance).toLocaleString('en-IN')}` : balance.toLocaleString('en-IN')}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                            <span style={{ fontWeight: 700, color: 'var(--c-primary)' }}>{pct}%</span>
+                            <div className="mini-bar"><div className="mini-fill" style={{ width: `${Math.min(pct, 100)}%`, background: getBarFill(pct) }} /></div>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'center' }}><BadgeCell pct={pct} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Monthly summary ── */}
+            <div className="section-label">Monthly Summary</div>
+            <div style={{ background: 'var(--c-white)', borderRadius: 'var(--r-md)', border: '1px solid var(--c-border)', overflow: 'hidden', marginBottom: 28 }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="ach-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Month</th>
+                      <th>Personnel</th>
+                      <th>Mandays</th>
+                      <th>CAP</th>
+                      <th>SSP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlySummary.map(m => (
+                      <tr key={m.name} style={{ opacity: m.hasData ? 1 : 0.45 }}>
+                        <td style={{ textAlign: 'left', fontWeight: 600 }}>
+                          {m.hasData && <span style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: 'var(--prog-good)', marginRight: 6, verticalAlign: 'middle' }} />}
+                          {m.name}
+                        </td>
+                        <td>{m.personnel ? m.personnel.toLocaleString('en-IN') : '—'}</td>
+                        <td>{m.mandays   ? m.mandays.toLocaleString('en-IN')   : '—'}</td>
+                        <td>{m.cap       ? m.cap                               : '—'}</td>
+                        <td>{m.ssp       ? m.ssp                               : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ textAlign: 'left' }}>Annual Total</td>
+                      <td>{monthlySummary.reduce((a, m) => a + m.personnel, 0).toLocaleString('en-IN')}</td>
+                      <td>{monthlySummary.reduce((a, m) => a + m.mandays,   0).toLocaleString('en-IN')}</td>
+                      <td>{monthlySummary.reduce((a, m) => a + m.cap, 0)}</td>
+                      <td>{monthlySummary.reduce((a, m) => a + m.ssp, 0)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Daily summary ── */}
+            <DailySummary entries={allEntries} />
+          </>
+        )}
+      </div>
+
+      {/* ── WhatsApp Share Modal ── */}
+      {showShare && (
+        <ShareModal
+          onClose={() => setShowShare(false)}
+          cumulative={cumul}
+          targets={targets}
+          financialYear={financialYear}
+          allEntries={allEntries}
+          entryDate={new Date().toISOString().split('T')[0]}
+        />
+      )}
+    </div>
+  )
+}
+
+function WaIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 32 32" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M16 3C8.82 3 3 8.82 3 16c0 2.39.63 4.64 1.73 6.6L3 29l6.54-1.72A13 13 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" fill="currentColor" opacity="0.3"/>
+      <path d="M22.5 19.5c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.48-1.76-1.66-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51-.17-.01-.37-.01-.57-.01-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.49s1.07 2.89 1.22 3.09c.15.2 2.1 3.2 5.08 4.49.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.19-.57-.34z" fill="currentColor"/>
+    </svg>
+  )
+}
+
+function DailySummary({ entries }) {
+  const byDate = {}
+  for (const e of entries) {
+    if (!byDate[e.entry_date]) byDate[e.entry_date] = []
+    byDate[e.entry_date].push(e)
+  }
+  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a)).slice(0, 10)
+  if (!dates.length) return null
+
+  return (
+    <>
+      <div className="section-label">Daily Report Log</div>
+      <div style={{ background: 'var(--c-white)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', overflow: 'hidden', marginBottom: 28 }}>
+        {dates.map((date, i) => {
+          const agg  = aggregateEntries(byDate[date])
+          const pers = (agg['sdrf_training']?.personnel_trained || 0) + (agg['inter_agency']?.personnel_trained || 0) + (agg['boatmen_training']?.personnel_trained || 0)
+          const cap  = agg['cap']?.programmes_conducted || 0
+          const ssp  = agg['ssp']?.programmes_conducted || 0
+          const acts = byDate[date].length
+
+          return (
+            <div key={date} style={{
+              padding: '11px 16px',
+              borderBottom: i < dates.length - 1 ? '1px solid var(--c-border)' : 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: i % 2 === 0 ? 'var(--c-white)' : 'var(--c-neutral)',
+            }}>
+              <div>
+                <div style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 13, color: 'var(--c-primary)' }}>
+                  {new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, color: 'var(--c-secondary)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginTop: 2 }}>
+                  {acts} activit{acts === 1 ? 'y' : 'ies'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                {pers > 0 && <Chip label="Personnel" value={pers} />}
+                {cap  > 0 && <Chip label="CAP"       value={cap}  />}
+                {ssp  > 0 && <Chip label="SSP"       value={ssp}  />}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+function Chip({ label, value }) {
+  return (
+    <div style={{ textAlign: 'right' }}>
+      <div style={{ fontFamily: "'Public Sans', sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--c-primary)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, fontWeight: 600, color: 'var(--c-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{label}</div>
+    </div>
+  )
+}
