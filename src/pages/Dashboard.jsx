@@ -9,6 +9,8 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import ShareModal from '../components/ShareModal'
+import CalendarWidget from '../components/CalendarWidget'
+import { fetchCalendarEntries, getStatus, statusStyle, formatDate } from '../lib/calendar'
 
 function getBarFill(pct) {
   if (pct >= 100) return 'var(--prog-done)'
@@ -31,6 +33,8 @@ export default function Dashboard() {
   const [targets,          setTargets]          = useState({})
   const [loading,          setLoading]          = useState(true)
   const [showShare,        setShowShare]        = useState(false)
+  const [calEntries,       setCalEntries]       = useState([])
+  const [calFilter,        setCalFilter]        = useState({ month: '', institution: '', from: '', to: '' })
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -51,6 +55,11 @@ export default function Dashboard() {
   }, [financialYear])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // Load calendar entries
+  useEffect(() => {
+    fetchCalendarEntries().then(setCalEntries).catch(() => {})
+  }, [])
 
   function getTarget(activityId, fieldKey) {
     return targets?.[activityId]?.[fieldKey]
@@ -328,6 +337,13 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* ── Training Calendar ── */}
+            <TrainingCalendarSection
+              calEntries={calEntries}
+              calFilter={calFilter}
+              setCalFilter={setCalFilter}
+            />
+
             {/* ── Daily summary ── */}
             <DailySummary entries={allEntries} />
           </>
@@ -412,5 +428,124 @@ function Chip({ label, value }) {
       <div style={{ fontFamily: "'Public Sans', sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--c-primary)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, fontWeight: 600, color: 'var(--c-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{label}</div>
     </div>
+  )
+}
+
+// ── Training Calendar Section ──────────────────────────────────────────────
+function TrainingCalendarSection({ calEntries, calFilter, setCalFilter }) {
+  const today = new Date().toISOString().split('T')[0]
+
+  // Unique institutions for filter
+  const institutions = [...new Set(calEntries.map(e => e.institution).filter(Boolean))].sort()
+
+  // Apply filters
+  const filtered = calEntries.filter(e => {
+    const status = getStatus(e.from_date, e.to_date)
+    if (calFilter.month) {
+      const m = new Date(e.from_date + 'T00:00:00').getMonth() + 1
+      if (String(m) !== calFilter.month) return false
+    }
+    if (calFilter.institution && e.institution !== calFilter.institution) return false
+    if (calFilter.from && e.to_date < calFilter.from) return false
+    if (calFilter.to   && e.from_date > calFilter.to) return false
+    return true
+  })
+
+  // Sort: Ongoing first, then Upcoming, then Completed
+  const ORDER = { Ongoing: 0, Upcoming: 1, Completed: 2 }
+  const sorted = [...filtered].sort((a, b) => {
+    const sa = getStatus(a.from_date, a.to_date)
+    const sb = getStatus(b.from_date, b.to_date)
+    if (ORDER[sa] !== ORDER[sb]) return ORDER[sa] - ORDER[sb]
+    return a.from_date.localeCompare(b.from_date)
+  })
+
+  return (
+    <>
+      {/* Calendar widget */}
+      <div className="section-label">Training Calendar</div>
+      <div style={{ marginBottom: 28 }}>
+        <CalendarWidget entries={calEntries} />
+      </div>
+
+      {/* Upcoming Commitments */}
+      <div className="section-label">Upcoming Commitments</div>
+
+      {/* Filters */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Month</div>
+          <select className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={calFilter.month} onChange={e => setCalFilter(f => ({ ...f, month: e.target.value }))}>
+            <option value="">All Months</option>
+            {MONTHS.map((m,i) => <option key={m} value={i+1}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Institution</div>
+          <select className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={calFilter.institution} onChange={e => setCalFilter(f => ({ ...f, institution: e.target.value }))}>
+            <option value="">All</option>
+            {institutions.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>From</div>
+          <input type="date" className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={calFilter.from} onChange={e => setCalFilter(f => ({ ...f, from: e.target.value }))} />
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>To</div>
+          <input type="date" className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={calFilter.to} onChange={e => setCalFilter(f => ({ ...f, to: e.target.value }))} />
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{ background:'var(--c-white)', border:'1px solid var(--c-border)', borderRadius:'var(--r-md)', padding:'32px 16px', textAlign:'center' }}>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:11, fontWeight:600, color:'var(--c-secondary)', letterSpacing:'0.06em', textTransform:'uppercase' }}>No entries found</div>
+          <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:13, color:'var(--c-secondary)', marginTop:6 }}>Add entries via the Data Entry → Training Calendar section</div>
+        </div>
+      ) : (
+        <>
+          {/* Mobile: cards */}
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:28 }}>
+            {sorted.map(evt => {
+              const st = getStatus(evt.from_date, evt.to_date)
+              const ss = statusStyle(st)
+              const DOT_COLOR = { Ongoing:'#2D6A4F', Upcoming:'#3730A3', Completed:'#6C7278' }
+              return (
+                <div key={evt.id} style={{
+                  background:'var(--c-white)', border:'1px solid var(--c-border)',
+                  borderLeft:`3px solid ${DOT_COLOR[st]}`,
+                  borderRadius:'var(--r-md)', padding:'12px 14px',
+                }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                    <div style={{ fontFamily:"'Public Sans',sans-serif", fontWeight:700, fontSize:14, color:'var(--c-primary)', flex:1 }}>{evt.activity_name}</div>
+                    <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, letterSpacing:'0.05em', textTransform:'uppercase', color:ss.color, background:ss.bg, border:`1px solid ${ss.border}`, borderRadius:'var(--r-sm)', padding:'3px 8px', flexShrink:0, marginLeft:8 }}>{st}</span>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'6px 12px' }}>
+                    {[
+                      { l:'From', v: formatDate(evt.from_date) },
+                      { l:'To',   v: formatDate(evt.to_date) },
+                      evt.institution && { l:'Institution', v: evt.institution },
+                      evt.nominated_personnel && { l:'Personnel', v: evt.nominated_personnel },
+                    ].filter(Boolean).map(r => (
+                      <div key={r.l}>
+                        <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:8, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.06em' }}>{r.l}</div>
+                        <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:12, fontWeight:600, color:'var(--c-primary)' }}>{r.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {evt.remarks && (
+                    <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:11, color:'var(--c-secondary)', marginTop:6, paddingTop:6, borderTop:'1px solid var(--c-border)', lineHeight:1.4 }}>{evt.remarks}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </>
   )
 }

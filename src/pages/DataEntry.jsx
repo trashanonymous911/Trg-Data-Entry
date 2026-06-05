@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import ActivityCard from '../components/ActivityCard'
+import CalendarEntryForm from '../components/CalendarEntryForm'
 import { ACTIVITIES, FINANCIAL_YEARS } from '../lib/constants'
 import {
   supabase, fetchCumulativeAchievements, saveDailyEntries,
@@ -175,6 +176,12 @@ export default function DataEntry() {
             onTargetChange={(fk, val) => handleTargetChange(activity.id, fk, val)}
           />
         ))}
+
+        {/* ── Training Calendar Entry ── */}
+        <div style={{ borderTop: '1px solid var(--c-border)', paddingTop: 20, marginTop: 8 }}>
+          <div className="section-label">Training Calendar</div>
+          <CalendarEntryForm onSaved={() => {}} />
+        </div>
 
         <div style={{ height: 100 }} />
       </div>
