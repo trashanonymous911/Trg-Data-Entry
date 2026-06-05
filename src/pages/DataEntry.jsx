@@ -51,10 +51,12 @@ export default function DataEntry() {
     const onOnline = async () => {
       setIsOnline(true)
       const n = await syncOfflineQueue()
-      if (n > 0) showToast(`✅ Synced ${n} offline entries`, 'success')
+      if (n > 0) showToast(`Synced ${n} offline entr${n === 1 ? 'y' : 'ies'}`, 'success')
       loadCumulative()
     }
     const onOffline = () => setIsOnline(false)
+    // Also try syncing any queued entries on mount (in case app was offline previously)
+    syncOfflineQueue().then(n => { if (n > 0) { showToast(`Synced ${n} queued entr${n === 1 ? 'y' : 'ies'}`, 'success'); loadCumulative() } }).catch(() => {})
     window.addEventListener('online',  onOnline)
     window.addEventListener('offline', onOffline)
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline) }
@@ -102,28 +104,25 @@ export default function DataEntry() {
 
     setSaving(true)
     try {
-      if (isOnline) {
-        await saveDailyEntries(entries)
-      } else {
-        entries.forEach(queueOfflineEntry)
-        showToast('Saved offline — will sync when connected', 'info')
-        setSaving(false)
-        return
-      }
-      // Save succeeded
+      // Always attempt live save — don't trust navigator.onLine
+      await saveDailyEntries(entries)
       showToast(`Report submitted — ${entries.length} activit${entries.length === 1 ? 'y' : 'ies'} saved`, 'success')
       setFormData({})
       loadCumulative()
     } catch (err) {
-      // Data may have saved — don't queue offline for server errors
+      // Only queue offline for genuine network failures
       const msg = err?.message || ''
-      const isNetworkError = !navigator.onLine || msg.includes('fetch') || msg.includes('network')
-      if (isNetworkError) {
+      const isNetworkFailure =
+        msg.toLowerCase().includes('failed to fetch') ||
+        msg.toLowerCase().includes('networkerror') ||
+        msg.toLowerCase().includes('network request failed') ||
+        msg.toLowerCase().includes('load failed') ||
+        !navigator.onLine
+      if (isNetworkFailure) {
         entries.forEach(queueOfflineEntry)
-        showToast('Saved offline — will sync when connected', 'info')
+        showToast('No connection — saved locally, will sync automatically', 'warn')
       } else {
-        // Server returned an error even though data may have been written
-        showToast(`Save error: ${msg || 'Unknown error'}`, 'error')
+        showToast(`Error: ${msg || 'Something went wrong'}`, 'error')
       }
     } finally {
       setSaving(false)
