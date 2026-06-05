@@ -82,10 +82,12 @@ export const ACTIVITIES = [
       { key: 'participants_covered', label: 'Participants Covered', type: 'number' },
     ],
     targets: [
-      { key: 'programmes_conducted', label: 'Programmes', defaultValue: 10 }
+      { key: 'programmes_conducted', label: 'Coverage', defaultValue: 100 }
     ],
     achievementKey: 'programmes_conducted',
     editableTarget: true,
+    isPercentage: true,
+    percentageLabel: '% of all posted personnel covered',
   },
   {
     id: 'boatmen_training',
@@ -179,11 +181,12 @@ export const ACTIVITIES = [
       { key: 'courses_completed', label: 'Courses Completed', type: 'number' },
     ],
     targets: [
-      { key: 'registered_personnel', label: 'Registrations (100%)', defaultValue: 100 }
+      { key: 'registered_personnel', label: 'Registration', defaultValue: 100 }
     ],
     achievementKey: 'registered_personnel',
     editableTarget: false,
     isPercentage: true,
+    percentageLabel: '% of all posted personnel registered',
   },
   {
     id: 'ncc_training',
@@ -222,10 +225,12 @@ export const ACTIVITIES = [
       { key: 'exempted', label: 'Exempted', type: 'number' },
     ],
     targets: [
-      { key: 'completed', label: 'Completed', defaultValue: 100 }
+      { key: 'completed', label: 'Completion', defaultValue: 100 }
     ],
     achievementKey: 'completed',
     editableTarget: true,
+    isPercentage: true,
+    percentageLabel: '% of all posted personnel completed',
   },
 ]
 

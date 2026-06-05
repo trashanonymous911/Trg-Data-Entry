@@ -34,12 +34,10 @@ export async function fetchCumulativeAchievements(financialYear) {
 }
 
 export async function saveDailyEntries(entries) {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('daily_entries')
     .insert(entries)
-    .select()
   if (error) throw error
-  return data
 }
 
 export async function updateTarget(activityName, financialYear, updates) {

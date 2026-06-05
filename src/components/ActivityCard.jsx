@@ -35,10 +35,11 @@ function getCumulativeLabel(activity) {
     district_mock:     'Exercises Conducted Till Today',
     ropeway_mock:      'Exercises Conducted Till Today',
     innovations:       'Innovations Submitted Till Today',
-    igot:              'Registrations Till Today',
+    igot:              '% of Personnel Registered on iGOT (Current)',
     ncc_training:      'Personnel Trained Till Today',
     nss_training:      'Personnel Trained Till Today',
-    bfrc:              'BFRC Completed Till Today',
+    bfrc:              '% of Personnel BFRC Completed (Current)',
+    cyber_crime:       '% of Posted Personnel Covered (Current)',
   }
   return labels[activity.id] || 'Total Achievement Till Today'
 }
@@ -47,13 +48,17 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
   const achievementKey = activity.achievementKey
   const mainTarget     = targets?.[achievementKey] ?? activity.targets.find(t => t.key === achievementKey)?.defaultValue ?? 0
   const dbCumulative   = cumulative?.[achievementKey] || 0
+  const isPercentage   = !!activity.isPercentage
   const tillTodayRaw   = formData?.__cumulative_override?.[achievementKey]
   const hasTillToday   = tillTodayRaw !== undefined && tillTodayRaw !== ''
   const effectiveCumul = hasTillToday ? (Number(tillTodayRaw) || 0) : dbCumulative
   const todayVal       = isNaN(Number(formData?.[achievementKey])) ? 0 : Number(formData?.[achievementKey] || 0)
   const totalAch       = hasTillToday ? effectiveCumul : effectiveCumul + todayVal
-  const balance        = calcBalance(totalAch, mainTarget)
-  const pct            = calcAchievementPct(totalAch, mainTarget)
+
+  // For percentage activities: totalAch IS the percentage (0–100), target is always 100
+  const pctTarget      = isPercentage ? 100 : mainTarget
+  const balance        = calcBalance(totalAch, pctTarget)
+  const pct            = isPercentage ? Math.min(totalAch, 100) : calcAchievementPct(totalAch, mainTarget)
   const badge          = getBadge(pct)
   const barClass       = getBarClass(pct)
   const barWidth       = Math.min(pct, 100)
@@ -102,20 +107,25 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
       <div className="stat-grid">
         <div className="stat-cell s-target">
           <div className="stat-label">Target</div>
-          <div className="stat-value">{mainTarget.toLocaleString('en-IN')}</div>
+          <div className="stat-value">{isPercentage ? '100%' : mainTarget.toLocaleString('en-IN')}</div>
         </div>
         <div className="stat-cell s-cumul">
-          <div className="stat-label">Cumul.</div>
-          <div className="stat-value">{effectiveCumul.toLocaleString('en-IN')}{hasTillToday && <sup style={{ fontSize: 7, marginLeft: 1 }}>*</sup>}</div>
+          <div className="stat-label">{isPercentage ? 'Achieved' : 'Cumul.'}</div>
+          <div className="stat-value">
+            {isPercentage ? `${totalAch}%` : effectiveCumul.toLocaleString('en-IN')}
+            {!isPercentage && hasTillToday && <sup style={{ fontSize: 7, marginLeft: 1 }}>*</sup>}
+          </div>
         </div>
         <div className="stat-cell s-balance">
           <div className="stat-label">Balance</div>
           <div className={`stat-value ${balance <= 0 ? 'surplus' : ''}`}>
-            {balance <= 0 ? `+${Math.abs(balance).toLocaleString('en-IN')}` : balance.toLocaleString('en-IN')}
+            {balance <= 0
+              ? `+${Math.abs(balance)}${isPercentage ? '%' : ''}`
+              : `${balance}${isPercentage ? '%' : ''}`}
           </div>
         </div>
         <div className="stat-cell s-pct">
-          <div className="stat-label">Ach%</div>
+          <div className="stat-label">Status</div>
           <div className="stat-value">{pct}%</div>
         </div>
       </div>
@@ -145,9 +155,14 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
             color: hasTillToday ? 'var(--c-primary)' : 'var(--c-secondary)',
             letterSpacing: '-0.02em', padding: 0,
           }}
-          placeholder={dbCumulative > 0 ? `${dbCumulative.toLocaleString('en-IN')} (from records)` : 'Enter total count till today…'}
+          placeholder={
+            isPercentage
+              ? 'Enter current % (0–100)…'
+              : dbCumulative > 0 ? `${dbCumulative.toLocaleString('en-IN')} (from records)` : 'Enter total count till today…'
+          }
           value={tillTodayRaw ?? ''}
           min={0}
+          max={isPercentage ? 100 : undefined}
           onChange={e => handleCumulativeOverride(e.target.value === '' ? '' : e.target.value)}
         />
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, color: 'var(--c-secondary)', marginTop: 6, letterSpacing: '0.03em' }}>
@@ -219,14 +234,35 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
                 onChange={e => handleChange(field.key, e.target.value)} />
             </div>
           )
+          // For percentage activities, the achievement key field shows a % input
+          const isAchievementField = isPercentage && field.key === achievementKey
           return (
             <div key={field.key}>
-              <label className="field-label">{field.label}</label>
-              <input type="number" inputMode="numeric" className="field-input"
-                placeholder="0"
-                value={formData?.[field.key] === 0 ? '' : formData?.[field.key] || ''}
-                onChange={e => handleChange(field.key, e.target.value === '' ? '' : Number(e.target.value))}
-                min={0} />
+              <label className="field-label">
+                {field.label}
+                {isAchievementField && (
+                  <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--c-secondary)', fontSize: '0.75rem' }}>
+                    {' '}(enter 0–100)
+                  </span>
+                )}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input type="number" inputMode="numeric" className="field-input"
+                  placeholder={isAchievementField ? '0–100' : '0'}
+                  value={formData?.[field.key] === 0 ? '' : formData?.[field.key] || ''}
+                  onChange={e => handleChange(field.key, e.target.value === '' ? '' : Number(e.target.value))}
+                  min={0}
+                  max={isAchievementField ? 100 : undefined}
+                  style={isAchievementField ? { paddingRight: 32 } : {}}
+                />
+                {isAchievementField && (
+                  <span style={{
+                    position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                    fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, fontWeight: 700,
+                    color: 'var(--c-secondary)', pointerEvents: 'none',
+                  }}>%</span>
+                )}
+              </div>
             </div>
           )
         })}

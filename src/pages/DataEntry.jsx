@@ -104,16 +104,27 @@ export default function DataEntry() {
     try {
       if (isOnline) {
         await saveDailyEntries(entries)
-        showToast(`Report submitted — ${entries.length} activit${entries.length === 1 ? 'y' : 'ies'} saved`, 'success')
       } else {
         entries.forEach(queueOfflineEntry)
         showToast('Saved offline — will sync when connected', 'info')
+        setSaving(false)
+        return
       }
+      // Save succeeded
+      showToast(`Report submitted — ${entries.length} activit${entries.length === 1 ? 'y' : 'ies'} saved`, 'success')
       setFormData({})
       loadCumulative()
-    } catch {
-      entries.forEach(queueOfflineEntry)
-      showToast('Queued offline — will retry automatically', 'warn')
+    } catch (err) {
+      // Data may have saved — don't queue offline for server errors
+      const msg = err?.message || ''
+      const isNetworkError = !navigator.onLine || msg.includes('fetch') || msg.includes('network')
+      if (isNetworkError) {
+        entries.forEach(queueOfflineEntry)
+        showToast('Saved offline — will sync when connected', 'info')
+      } else {
+        // Server returned an error even though data may have been written
+        showToast(`Save error: ${msg || 'Unknown error'}`, 'error')
+      }
     } finally {
       setSaving(false)
     }
