@@ -10,7 +10,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import ShareModal from '../components/ShareModal'
 import CalendarWidget from '../components/CalendarWidget'
-import { fetchCalendarEntries, getStatus, statusStyle, formatDate } from '../lib/calendar'
+import { fetchCalendarEntries, deleteCalendarEntry, getStatus, statusStyle, formatDate } from '../lib/calendar'
 
 function getBarFill(pct) {
   if (pct >= 100) return 'var(--prog-done)'
@@ -60,6 +60,15 @@ export default function Dashboard() {
   useEffect(() => {
     fetchCalendarEntries().then(setCalEntries).catch(() => {})
   }, [])
+
+  async function handleDeleteCalEntry(id) {
+    try {
+      await deleteCalendarEntry(id)
+      setCalEntries(prev => prev.filter(e => e.id !== id))
+    } catch (e) {
+      console.error('Delete failed', e)
+    }
+  }
 
   function getTarget(activityId, fieldKey) {
     return targets?.[activityId]?.[fieldKey]
@@ -342,6 +351,7 @@ export default function Dashboard() {
               calEntries={calEntries}
               calFilter={calFilter}
               setCalFilter={setCalFilter}
+              onDelete={handleDeleteCalEntry}
             />
 
             {/* ── Daily summary ── */}
@@ -432,8 +442,8 @@ function Chip({ label, value }) {
 }
 
 // ── Training Calendar Section ──────────────────────────────────────────────
-function TrainingCalendarSection({ calEntries, calFilter, setCalFilter }) {
-  const today = new Date().toISOString().split('T')[0]
+function TrainingCalendarSection({ calEntries, calFilter, setCalFilter, onDelete }) {
+  const [confirmId, setConfirmId] = useState(null)
 
   // Unique institutions for filter
   const institutions = [...new Set(calEntries.map(e => e.institution).filter(Boolean))].sort()
@@ -465,7 +475,7 @@ function TrainingCalendarSection({ calEntries, calFilter, setCalFilter }) {
       {/* Calendar widget */}
       <div className="section-label">Training Calendar</div>
       <div style={{ marginBottom: 28 }}>
-        <CalendarWidget entries={calEntries} />
+        <CalendarWidget entries={calEntries} onDelete={onDelete} />
       </div>
 
       {/* Upcoming Commitments */}
@@ -514,6 +524,7 @@ function TrainingCalendarSection({ calEntries, calFilter, setCalFilter }) {
               const st = getStatus(evt.from_date, evt.to_date)
               const ss = statusStyle(st)
               const DOT_COLOR = { Ongoing:'#2D6A4F', Upcoming:'#3730A3', Completed:'#6C7278' }
+              const isConfirming = confirmId === evt.id
               return (
                 <div key={evt.id} style={{
                   background:'var(--c-white)', border:'1px solid var(--c-border)',
@@ -540,6 +551,32 @@ function TrainingCalendarSection({ calEntries, calFilter, setCalFilter }) {
                   {evt.remarks && (
                     <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:11, color:'var(--c-secondary)', marginTop:6, paddingTop:6, borderTop:'1px solid var(--c-border)', lineHeight:1.4 }}>{evt.remarks}</div>
                   )}
+                  {/* Delete */}
+                  <div style={{ marginTop:10, paddingTop:8, borderTop:'1px solid var(--c-border)' }}>
+                    {!isConfirming ? (
+                      <button onClick={() => setConfirmId(evt.id)} style={{
+                        fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:600,
+                        letterSpacing:'0.04em', textTransform:'uppercase',
+                        color:'var(--c-tertiary)', background:'none',
+                        border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)',
+                        padding:'4px 12px', cursor:'pointer',
+                      }}>Delete</button>
+                    ) : (
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:10, color:'var(--c-secondary)', fontWeight:600 }}>Confirm delete?</span>
+                        <button onClick={() => { onDelete(evt.id); setConfirmId(null) }} style={{
+                          fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:700,
+                          background:'var(--c-tertiary)', color:'#fff',
+                          border:'none', borderRadius:'var(--r-sm)', padding:'4px 12px', cursor:'pointer',
+                        }}>Yes</button>
+                        <button onClick={() => setConfirmId(null)} style={{
+                          fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:600,
+                          background:'var(--c-neutral)', color:'var(--c-secondary)',
+                          border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)', padding:'4px 12px', cursor:'pointer',
+                        }}>Cancel</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             })}

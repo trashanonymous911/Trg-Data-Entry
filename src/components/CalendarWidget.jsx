@@ -11,11 +11,11 @@ const MONTHS = ['January','February','March','April','May','June',
 // Color per status for calendar dots
 const DOT = { Upcoming: '#3730A3', Ongoing: '#2D6A4F', Completed: '#6C7278' }
 
-export default function CalendarWidget({ entries = [] }) {
+export default function CalendarWidget({ entries = [], onDelete }) {
   const today   = new Date()
   const [year,  setYear]   = useState(today.getFullYear())
   const [month, setMonth]  = useState(today.getMonth())
-  const [selected, setSelected] = useState(null) // clicked event detail
+  const [selected, setSelected] = useState(null)
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) }
@@ -154,14 +154,23 @@ export default function CalendarWidget({ entries = [] }) {
           events={selected.events}
           onClose={() => setSelected(null)}
           month={month} year={year}
+          onDelete={id => {
+            onDelete && onDelete(id)
+            // Remove deleted entry from the selected list; close if none remain
+            const remaining = selected.events.filter(e => e.id !== id)
+            if (remaining.length === 0) setSelected(null)
+            else setSelected(s => ({ ...s, events: remaining }))
+          }}
         />
       )}
     </div>
   )
 }
 
-function DayDetail({ day, dateStr, events, onClose, month, year }) {
+function DayDetail({ day, dateStr, events, onClose, month, year, onDelete }) {
   const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const [confirming, setConfirming] = useState(null) // id of entry awaiting confirm
+
   return (
     <>
       <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,20,60,0.4)', zIndex:200, backdropFilter:'blur(2px)' }} />
@@ -195,12 +204,16 @@ function DayDetail({ day, dateStr, events, onClose, month, year }) {
           {events.map(evt => {
             const st = getStatus(evt.from_date, evt.to_date)
             const ss = statusStyle(st)
+            const isConfirming = confirming === evt.id
             return (
               <div key={evt.id} style={{ border:'1px solid var(--c-border)', borderRadius:'var(--r-md)', padding:14, borderLeft:`3px solid ${DOT[st]}` }}>
+                {/* Title row */}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
                   <div style={{ fontFamily:"'Public Sans', sans-serif", fontWeight:700, fontSize:14, color:'var(--c-primary)', flex:1 }}>{evt.activity_name}</div>
                   <span style={{ fontFamily:"'Space Grotesk', sans-serif", fontSize:9, fontWeight:600, letterSpacing:'0.05em', textTransform:'uppercase', color:ss.color, background:ss.bg, border:`1px solid ${ss.border}`, borderRadius:'var(--r-sm)', padding:'3px 8px', flexShrink:0, marginLeft:8 }}>{st}</span>
                 </div>
+
+                {/* Details */}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                   {[
                     { l:'From', v: formatDate(evt.from_date) },
@@ -214,12 +227,40 @@ function DayDetail({ day, dateStr, events, onClose, month, year }) {
                     </div>
                   ))}
                 </div>
+
                 {evt.remarks && (
                   <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid var(--c-border)' }}>
                     <div style={{ fontFamily:"'Space Grotesk', sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:3 }}>Remarks</div>
                     <div style={{ fontFamily:"'Public Sans', sans-serif", fontSize:13, color:'var(--c-primary)', lineHeight:1.5 }}>{evt.remarks}</div>
                   </div>
                 )}
+
+                {/* Delete row */}
+                <div style={{ marginTop:12, paddingTop:10, borderTop:'1px solid var(--c-border)' }}>
+                  {!isConfirming ? (
+                    <button onClick={() => setConfirming(evt.id)} style={{
+                      fontFamily:"'Space Grotesk', sans-serif", fontSize:10, fontWeight:600,
+                      letterSpacing:'0.04em', textTransform:'uppercase',
+                      color:'var(--c-tertiary)', background:'none',
+                      border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)',
+                      padding:'5px 12px', cursor:'pointer',
+                    }}>Delete Entry</button>
+                  ) : (
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontFamily:"'Space Grotesk', sans-serif", fontSize:10, color:'var(--c-secondary)', fontWeight:600 }}>Confirm delete?</span>
+                      <button onClick={() => { onDelete(evt.id); setConfirming(null) }} style={{
+                        fontFamily:"'Space Grotesk', sans-serif", fontSize:10, fontWeight:700,
+                        background:'var(--c-tertiary)', color:'#fff',
+                        border:'none', borderRadius:'var(--r-sm)', padding:'5px 12px', cursor:'pointer',
+                      }}>Yes, Delete</button>
+                      <button onClick={() => setConfirming(null)} style={{
+                        fontFamily:"'Space Grotesk', sans-serif", fontSize:10, fontWeight:600,
+                        background:'var(--c-neutral)', color:'var(--c-secondary)',
+                        border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)', padding:'5px 12px', cursor:'pointer',
+                      }}>Cancel</button>
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })}
