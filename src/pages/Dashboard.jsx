@@ -179,16 +179,44 @@ export default function Dashboard() {
       bodyStyles: { fontSize: 8 },
       alternateRowStyles: { fillColor: [238, 242, 255] },
     })
+    // ── Page 2: Training Calendar Commitments ──
     doc.addPage()
     doc.setFontSize(12); doc.setTextColor(0, 32, 96)
-    doc.text('Monthly Summary', 14, 16)
-    autoTable(doc, {
-      startY: 22,
-      head: [['Month', 'Personnel', 'Mandays', 'CAP', 'SSP']],
-      body: monthlySummary.map(m => [m.name, m.personnel, m.mandays, m.cap, m.ssp]),
-      headStyles: { fillColor: [0, 32, 96], fontSize: 8 },
-      bodyStyles: { fontSize: 9 },
+    doc.text('Training Calendar — Commitments', 14, 16)
+    doc.setFontSize(9); doc.setTextColor(100)
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 22)
+
+    // Sort: Ongoing → Upcoming → Completed
+    const ORDER = { Ongoing: 0, Upcoming: 1, Completed: 2 }
+    const calRows = [...calEntries].sort((a, b) => {
+      const sa = getStatus(a.from_date, a.to_date)
+      const sb = getStatus(b.from_date, b.to_date)
+      if (ORDER[sa] !== ORDER[sb]) return ORDER[sa] - ORDER[sb]
+      return a.from_date.localeCompare(b.from_date)
     })
+
+    if (calRows.length === 0) {
+      doc.setFontSize(10); doc.setTextColor(120)
+      doc.text('No training commitments recorded.', 14, 32)
+    } else {
+      autoTable(doc, {
+        startY: 27,
+        head: [['Course / Activity', 'Institution', 'From', 'To', 'Personnel', 'Status', 'Remarks']],
+        body: calRows.map(e => [
+          e.activity_name || '',
+          e.institution || '—',
+          formatDate(e.from_date),
+          formatDate(e.to_date),
+          e.nominated_personnel || '—',
+          getStatus(e.from_date, e.to_date),
+          e.remarks || '',
+        ]),
+        headStyles: { fillColor: [0, 32, 96], fontSize: 8, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 8 },
+        alternateRowStyles: { fillColor: [238, 242, 255] },
+        columnStyles: { 6: { cellWidth: 60 } },
+      })
+    }
     doc.save(`NDRF_Training_${financialYear}.pdf`)
   }
 
@@ -310,47 +338,6 @@ export default function Dashboard() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* ── Monthly summary ── */}
-            <div className="section-label">Monthly Summary</div>
-            <div style={{ background: 'var(--c-white)', borderRadius: 'var(--r-md)', border: '1px solid var(--c-border)', overflow: 'hidden', marginBottom: 28 }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="ach-table">
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Month</th>
-                      <th>Personnel</th>
-                      <th>Mandays</th>
-                      <th>CAP</th>
-                      <th>SSP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlySummary.map(m => (
-                      <tr key={m.name} style={{ opacity: m.hasData ? 1 : 0.45 }}>
-                        <td style={{ textAlign: 'left', fontWeight: 600 }}>
-                          {m.hasData && <span style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: 'var(--prog-good)', marginRight: 6, verticalAlign: 'middle' }} />}
-                          {m.name}
-                        </td>
-                        <td>{m.personnel ? m.personnel.toLocaleString('en-IN') : '—'}</td>
-                        <td>{m.mandays   ? m.mandays.toLocaleString('en-IN')   : '—'}</td>
-                        <td>{m.cap       ? m.cap                               : '—'}</td>
-                        <td>{m.ssp       ? m.ssp                               : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td style={{ textAlign: 'left' }}>Annual Total</td>
-                      <td>{monthlySummary.reduce((a, m) => a + m.personnel, 0).toLocaleString('en-IN')}</td>
-                      <td>{monthlySummary.reduce((a, m) => a + m.mandays,   0).toLocaleString('en-IN')}</td>
-                      <td>{monthlySummary.reduce((a, m) => a + m.cap, 0)}</td>
-                      <td>{monthlySummary.reduce((a, m) => a + m.ssp, 0)}</td>
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
             </div>

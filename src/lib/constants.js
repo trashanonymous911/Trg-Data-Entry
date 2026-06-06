@@ -13,7 +13,7 @@ export const ACTIVITIES = [
       { key: 'completed_today', label: 'Tests Completed', defaultValue: 767 }
     ],
     achievementKey: 'completed_today',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'sdrf_training',
@@ -28,7 +28,7 @@ export const ACTIVITIES = [
       { key: 'mandays', label: 'Mandays', defaultValue: 5000 },
     ],
     achievementKey: 'personnel_trained',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'inter_agency',
@@ -43,7 +43,7 @@ export const ACTIVITIES = [
       { key: 'mandays', label: 'Mandays', defaultValue: 1700 },
     ],
     achievementKey: 'personnel_trained',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'cap',
@@ -57,7 +57,7 @@ export const ACTIVITIES = [
       { key: 'programmes_conducted', label: 'Programmes', defaultValue: 200 }
     ],
     achievementKey: 'programmes_conducted',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'ssp',
@@ -71,7 +71,7 @@ export const ACTIVITIES = [
       { key: 'programmes_conducted', label: 'Programmes', defaultValue: 200 }
     ],
     achievementKey: 'programmes_conducted',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'cyber_crime',
@@ -100,7 +100,7 @@ export const ACTIVITIES = [
       { key: 'personnel_trained', label: 'Personnel', defaultValue: 350 }
     ],
     achievementKey: 'personnel_trained',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'railway_disaster',
@@ -114,7 +114,7 @@ export const ACTIVITIES = [
       { key: 'qualified_personnel', label: 'Qualified Personnel', defaultValue: 30 }
     ],
     achievementKey: 'qualified_personnel',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'railway_mock',
@@ -127,7 +127,7 @@ export const ACTIVITIES = [
       { key: 'conducted', label: 'Exercises', defaultValue: 8 }
     ],
     achievementKey: 'conducted',
-    editableTarget: false,
+    editableTarget: true,
     isMockExercise: true,
   },
   {
@@ -141,7 +141,7 @@ export const ACTIVITIES = [
       { key: 'conducted', label: 'Exercises', defaultValue: 14 }
     ],
     achievementKey: 'conducted',
-    editableTarget: false,
+    editableTarget: true,
     isMockExercise: true,
   },
   {
@@ -155,7 +155,7 @@ export const ACTIVITIES = [
       { key: 'conducted', label: 'Exercises', defaultValue: 4 }
     ],
     achievementKey: 'conducted',
-    editableTarget: false,
+    editableTarget: true,
     isMockExercise: true,
   },
   {
@@ -170,7 +170,7 @@ export const ACTIVITIES = [
       { key: 'count', label: 'Innovations', defaultValue: 2 }
     ],
     achievementKey: 'count',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'igot',
@@ -184,7 +184,7 @@ export const ACTIVITIES = [
       { key: 'registered_personnel', label: 'Registration', defaultValue: 100 }
     ],
     achievementKey: 'registered_personnel',
-    editableTarget: false,
+    editableTarget: true,
     isPercentage: true,
     percentageLabel: '% of all posted personnel registered',
   },
@@ -199,7 +199,7 @@ export const ACTIVITIES = [
       { key: 'personnel_trained', label: 'Personnel', defaultValue: 24 }
     ],
     achievementKey: 'personnel_trained',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'nss_training',
@@ -212,7 +212,7 @@ export const ACTIVITIES = [
       { key: 'personnel_trained', label: 'Personnel', defaultValue: 24 }
     ],
     achievementKey: 'personnel_trained',
-    editableTarget: false,
+    editableTarget: true,
   },
   {
     id: 'bfrc',

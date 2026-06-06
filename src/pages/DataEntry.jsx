@@ -78,7 +78,9 @@ export default function DataEntry() {
     supabase.from('annual_targets').upsert({
       activity_id: activityId, target_key: fieldKey,
       target_value: value, financial_year: financialYear
-    }).then(() => {})
+    }, { onConflict: 'activity_id,target_key,financial_year' }).then(({ error }) => {
+      if (error) console.error('[NDRF] Target update failed:', error.message)
+    })
   }
 
   async function handleSubmit() {

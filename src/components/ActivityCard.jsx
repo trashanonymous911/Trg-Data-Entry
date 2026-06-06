@@ -51,6 +51,9 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
   const isPercentage   = !!activity.isPercentage
   const tillTodayRaw   = formData?.__cumulative_override?.[achievementKey]
   const hasTillToday   = tillTodayRaw !== undefined && tillTodayRaw !== ''
+  // Pre-fill the field visually with the saved cumulative so it always shows the running total
+  const displayValue   = tillTodayRaw !== undefined ? tillTodayRaw : (dbCumulative > 0 ? dbCumulative : '')
+  const showsValue     = displayValue !== '' && displayValue !== null
   const effectiveCumul = hasTillToday ? (Number(tillTodayRaw) || 0) : dbCumulative
   const todayVal       = isNaN(Number(formData?.[achievementKey])) ? 0 : Number(formData?.[achievementKey] || 0)
   const totalAch       = hasTillToday ? effectiveCumul : effectiveCumul + todayVal
@@ -74,13 +77,13 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
   }
 
   function handleCumulativeOverride(value) {
-    onChange({
-      ...formData,
-      __cumulative_override: {
-        ...(formData?.__cumulative_override || {}),
-        [achievementKey]: value,
-      }
-    })
+    const overrides = { ...(formData?.__cumulative_override || {}) }
+    if (value === undefined) {
+      delete overrides[achievementKey] // revert to auto-prefill
+    } else {
+      overrides[achievementKey] = value
+    }
+    onChange({ ...formData, __cumulative_override: overrides })
   }
 
   return (
@@ -135,13 +138,13 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <span className="label-caps">{getCumulativeLabel(activity)}</span>
           {hasTillToday && (
-            <button onClick={() => handleCumulativeOverride('')} style={{
+            <button onClick={() => handleCumulativeOverride(undefined)} style={{
               fontFamily: "'Space Grotesk', sans-serif",
               fontSize: 9, fontWeight: 600, letterSpacing: '0.04em',
               textTransform: 'uppercase', color: 'var(--c-secondary)',
               background: 'none', border: '1px solid var(--c-border)', borderRadius: 4,
               padding: '2px 8px', cursor: 'pointer',
-            }}>Clear</button>
+            }}>Reset</button>
           )}
         </div>
         <input
@@ -150,50 +153,46 @@ export default function ActivityCard({ activity, formData, onChange, cumulative,
           style={{
             width: '100%', background: 'transparent', border: 'none', outline: 'none',
             fontFamily: "'Public Sans', sans-serif",
-            fontSize: hasTillToday ? '1.5rem' : '0.9375rem',
+            fontSize: showsValue ? '1.5rem' : '0.9375rem',
             fontWeight: 700,
-            color: hasTillToday ? 'var(--c-primary)' : 'var(--c-secondary)',
+            color: showsValue ? 'var(--c-primary)' : 'var(--c-secondary)',
             letterSpacing: '-0.02em', padding: 0,
           }}
           placeholder={
             isPercentage
               ? 'Enter current % (0–100)…'
-              : dbCumulative > 0 ? `${dbCumulative.toLocaleString('en-IN')} (from records)` : 'Enter total count till today…'
+              : 'Enter total count till today…'
           }
-          value={tillTodayRaw ?? ''}
+          value={displayValue}
           min={0}
           max={isPercentage ? 100 : undefined}
           onChange={e => handleCumulativeOverride(e.target.value === '' ? '' : e.target.value)}
         />
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, color: 'var(--c-secondary)', marginTop: 6, letterSpacing: '0.03em' }}>
-          {hasTillToday
-            ? `Overrides auto-calculated total · balance = ${balance <= 0 ? '+' + Math.abs(balance) + ' surplus' : balance + ' remaining'}`
-            : 'Leave blank to use auto-calculated total from daily records'}
+          {`Updates live · ${isPercentage ? pct + '% achieved' : (balance <= 0 ? '+' + Math.abs(balance) + ' surplus' : balance + ' remaining')}`}
         </div>
       </div>
 
-      {/* ── Editable target ── */}
-      {activity.editableTarget && (
+      {/* ── Editable target(s) — hidden for fixed-100% percentage activities ── */}
+      {activity.editableTarget && !isPercentage && (
         <div className="editable-callout">
-          <div className="editable-callout-label">Edit Annual Target — {activity.targets[0].label}</div>
-          <input
-            type="number"
-            className="field-input editable-target"
-            value={mainTarget}
-            onChange={e => onTargetChange && onTargetChange(achievementKey, Number(e.target.value))}
-            min={0} inputMode="numeric"
-          />
-        </div>
-      )}
-
-      {/* ── Multi-target pills ── */}
-      {activity.targets.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
-          {activity.targets.map(t => (
-            <span key={t.key} className="target-pill">
-              {t.label}: {(targets?.[t.key] ?? t.defaultValue).toLocaleString('en-IN')}
-            </span>
-          ))}
+          <div className="editable-callout-label">
+            Annual Target{activity.targets.length > 1 ? 's' : ''} — Editable
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: activity.targets.length > 1 ? '1fr 1fr' : '1fr', gap: 10 }}>
+            {activity.targets.map(t => (
+              <div key={t.key}>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--c-secondary)', marginBottom: 4 }}>{t.label}</div>
+                <input
+                  type="number"
+                  className="field-input editable-target"
+                  value={targets?.[t.key] ?? t.defaultValue}
+                  onChange={e => onTargetChange && onTargetChange(t.key, Number(e.target.value))}
+                  min={0} inputMode="numeric"
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
