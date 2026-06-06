@@ -104,26 +104,15 @@ export default function DataEntry() {
 
     setSaving(true)
     try {
-      // Always attempt live save — don't trust navigator.onLine
       await saveDailyEntries(entries)
       showToast(`Report submitted — ${entries.length} activit${entries.length === 1 ? 'y' : 'ies'} saved`, 'success')
       setFormData({})
       loadCumulative()
     } catch (err) {
-      // Only queue offline for genuine network failures
-      const msg = err?.message || ''
-      const isNetworkFailure =
-        msg.toLowerCase().includes('failed to fetch') ||
-        msg.toLowerCase().includes('networkerror') ||
-        msg.toLowerCase().includes('network request failed') ||
-        msg.toLowerCase().includes('load failed') ||
-        !navigator.onLine
-      if (isNetworkFailure) {
-        entries.forEach(queueOfflineEntry)
-        showToast('No connection — saved locally, will sync automatically', 'warn')
-      } else {
-        showToast(`Error: ${msg || 'Something went wrong'}`, 'error')
-      }
+      const msg = err?.message || String(err) || 'Unknown error'
+      console.error('[NDRF] Save failed:', msg, err)
+      // Show the exact error so it can be debugged
+      showToast(`Save failed: ${msg}`, 'error')
     } finally {
       setSaving(false)
     }

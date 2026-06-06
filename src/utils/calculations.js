@@ -1,9 +1,21 @@
-// Aggregate daily_entries into cumulative totals per activity + field
+// Aggregate daily_entries into cumulative totals per activity + field.
+//
+// Two kinds of values can be stored on an entry:
+//   - `data`               : incremental daily values (summed across entries)
+//   - `cumulative_override`: an absolute "total till today" snapshot for a field
+//
+// A cumulative_override REPLACES the summed value for that field (it is not added),
+// and the LATEST override (by created_at) wins. This also prevents double-counting
+// when the same report is submitted/synced more than once.
 export function aggregateEntries(entries) {
   const totals = {}
+  const latestOverride = {} // { activityId: { field: { value, ts } } }
+
   for (const entry of entries) {
     const key = entry.activity_id
     if (!totals[key]) totals[key] = {}
+
+    // 1. Sum incremental daily data
     const data = entry.data || {}
     for (const [field, value] of Object.entries(data)) {
       if (typeof value === 'number') {
@@ -12,7 +24,30 @@ export function aggregateEntries(entries) {
         totals[key][field] = (totals[key][field] || 0) + 1
       }
     }
+
+    // 2. Track the latest cumulative override per field
+    const override = entry.cumulative_override || {}
+    const ts = entry.created_at || entry.entry_date || ''
+    for (const [field, raw] of Object.entries(override)) {
+      if (raw === '' || raw === null || raw === undefined) continue
+      const num = Number(raw)
+      if (isNaN(num)) continue
+      if (!latestOverride[key]) latestOverride[key] = {}
+      const existing = latestOverride[key][field]
+      if (!existing || ts >= existing.ts) {
+        latestOverride[key][field] = { value: num, ts }
+      }
+    }
   }
+
+  // 3. Apply overrides — absolute totals replace the summed increments
+  for (const [activityId, fields] of Object.entries(latestOverride)) {
+    if (!totals[activityId]) totals[activityId] = {}
+    for (const [field, { value }] of Object.entries(fields)) {
+      totals[activityId][field] = value
+    }
+  }
+
   return totals
 }
 

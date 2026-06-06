@@ -34,10 +34,15 @@ export async function fetchCumulativeAchievements(financialYear) {
 }
 
 export async function saveDailyEntries(entries) {
+  console.log('[NDRF] Saving entries:', entries.length, entries.map(e => e.activity_id))
   const { error } = await supabase
     .from('daily_entries')
     .insert(entries)
-  if (error) throw error
+  if (error) {
+    console.error('[NDRF] Supabase insert error:', error)
+    throw new Error(error.message || JSON.stringify(error))
+  }
+  console.log('[NDRF] Save successful')
 }
 
 export async function updateTarget(activityName, financialYear, updates) {
