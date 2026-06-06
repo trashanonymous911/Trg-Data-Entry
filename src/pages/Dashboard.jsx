@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ACTIVITIES, FINANCIAL_YEARS, MONTHS } from '../lib/constants'
-import { supabase, fetchCumulativeAchievements, getCurrentFY } from '../lib/supabase'
+import { supabase, fetchCumulativeAchievements, deleteDailyEntry, getCurrentFY } from '../lib/supabase'
 import {
   aggregateEntries, calcAchievementPct, calcBalance,
   filterByMonth, filterByActivity
@@ -67,6 +67,15 @@ export default function Dashboard() {
       setCalEntries(prev => prev.filter(e => e.id !== id))
     } catch (e) {
       console.error('Delete failed', e)
+    }
+  }
+
+  async function handleDeleteDailyEntry(id) {
+    try {
+      await deleteDailyEntry(id)
+      setAllEntries(prev => prev.filter(e => e.id !== id))
+    } catch (e) {
+      console.error('Delete daily entry failed', e)
     }
   }
 
@@ -356,6 +365,9 @@ export default function Dashboard() {
 
             {/* ── Daily summary ── */}
             <DailySummary entries={allEntries} />
+
+            {/* ── Manage Entries ── */}
+            <ManageEntries entries={allEntries} onDelete={handleDeleteDailyEntry} />
           </>
         )}
       </div>
@@ -438,6 +450,144 @@ function Chip({ label, value }) {
       <div style={{ fontFamily: "'Public Sans', sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--c-primary)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 9, fontWeight: 600, color: 'var(--c-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{label}</div>
     </div>
+  )
+}
+
+// ── Manage Entries — view & delete individual daily reports ────────────────
+function activityName(id) {
+  return ACTIVITIES.find(a => a.id === id)?.name || id
+}
+
+// Build a readable "field: value" summary from an entry's data + override
+function summarizeEntry(entry) {
+  const parts = []
+  const data = entry.data || {}
+  for (const [k, v] of Object.entries(data)) {
+    if (v === '' || v === null || v === undefined) continue
+    const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    parts.push(`${label}: ${v === true ? 'Yes' : v === false ? 'No' : v}`)
+  }
+  const override = entry.cumulative_override || {}
+  for (const [k, v] of Object.entries(override)) {
+    if (v === '' || v === null || v === undefined) continue
+    const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    parts.push(`${label} (till date): ${v}`)
+  }
+  return parts
+}
+
+function ManageEntries({ entries, onDelete }) {
+  const [filterActivity, setFilterActivity] = useState('')
+  const [filterDate,     setFilterDate]     = useState('')
+  const [confirmId,      setConfirmId]      = useState(null)
+  const [expanded,       setExpanded]       = useState(false)
+
+  let rows = [...entries].sort((a, b) => {
+    // newest first by date then created_at
+    if (a.entry_date !== b.entry_date) return b.entry_date.localeCompare(a.entry_date)
+    return (b.created_at || '').localeCompare(a.created_at || '')
+  })
+  if (filterActivity) rows = rows.filter(e => e.activity_id === filterActivity)
+  if (filterDate)     rows = rows.filter(e => e.entry_date === filterDate)
+
+  const shown = expanded ? rows : rows.slice(0, 8)
+
+  return (
+    <>
+      <div className="section-label" style={{ marginTop: 28 }}>Manage Entries</div>
+
+      {/* Filters */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Activity</div>
+          <select className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={filterActivity} onChange={e => setFilterActivity(e.target.value)}>
+            <option value="">All Activities</option>
+            {ACTIVITIES.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Date</div>
+          <input type="date" className="field-input" style={{ padding:'7px 10px', fontSize:12 }}
+            value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={{ background:'var(--c-white)', border:'1px solid var(--c-border)', borderRadius:'var(--r-md)', padding:'28px 16px', textAlign:'center' }}>
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:11, fontWeight:600, color:'var(--c-secondary)', letterSpacing:'0.06em', textTransform:'uppercase' }}>No entries</div>
+          <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:13, color:'var(--c-secondary)', marginTop:6 }}>Submit a daily report to see entries here</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ background:'var(--c-white)', border:'1px solid var(--c-border)', borderRadius:'var(--r-md)', overflow:'hidden' }}>
+            {shown.map((entry, i) => {
+              const summary = summarizeEntry(entry)
+              const isConfirming = confirmId === entry.id
+              return (
+                <div key={entry.id} style={{
+                  padding:'12px 14px',
+                  borderBottom: i < shown.length - 1 ? '1px solid var(--c-border)' : 'none',
+                  background: i % 2 === 0 ? 'var(--c-white)' : 'var(--c-neutral)',
+                }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                        <span style={{ fontFamily:"'Public Sans',sans-serif", fontWeight:700, fontSize:13, color:'var(--c-primary)' }}>{activityName(entry.activity_id)}</span>
+                        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:9, fontWeight:600, color:'var(--c-secondary)', letterSpacing:'0.04em', textTransform:'uppercase', border:'1px solid var(--c-border)', borderRadius:4, padding:'1px 6px' }}>{formatDate(entry.entry_date)}</span>
+                      </div>
+                      <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:12, color:'var(--c-secondary)', lineHeight:1.5 }}>
+                        {summary.length ? summary.join('  ·  ') : <em>No values</em>}
+                      </div>
+                      {entry.remarks && (
+                        <div style={{ fontFamily:"'Public Sans',sans-serif", fontSize:11, color:'var(--c-secondary)', marginTop:3, fontStyle:'italic' }}>“{entry.remarks}”</div>
+                      )}
+                    </div>
+
+                    {/* Delete */}
+                    {!isConfirming ? (
+                      <button onClick={() => setConfirmId(entry.id)} style={{
+                        fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:600,
+                        letterSpacing:'0.04em', textTransform:'uppercase',
+                        color:'var(--c-tertiary)', background:'none',
+                        border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)',
+                        padding:'4px 10px', cursor:'pointer', flexShrink:0,
+                      }}>Delete</button>
+                    ) : (
+                      <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                        <button onClick={() => { onDelete(entry.id); setConfirmId(null) }} style={{
+                          fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:700,
+                          background:'var(--c-tertiary)', color:'#fff',
+                          border:'none', borderRadius:'var(--r-sm)', padding:'4px 10px', cursor:'pointer',
+                        }}>Yes</button>
+                        <button onClick={() => setConfirmId(null)} style={{
+                          fontFamily:"'Space Grotesk',sans-serif", fontSize:10, fontWeight:600,
+                          background:'var(--c-neutral)', color:'var(--c-secondary)',
+                          border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)', padding:'4px 10px', cursor:'pointer',
+                        }}>No</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {rows.length > 8 && (
+            <button onClick={() => setExpanded(x => !x)} style={{
+              marginTop:10, width:'100%',
+              fontFamily:"'Space Grotesk',sans-serif", fontSize:11, fontWeight:600,
+              letterSpacing:'0.05em', textTransform:'uppercase',
+              color:'var(--c-primary)', background:'var(--c-white)',
+              border:'1px solid var(--c-border)', borderRadius:'var(--r-sm)',
+              padding:'9px', cursor:'pointer',
+            }}>
+              {expanded ? 'Show Less' : `Show All ${rows.length} Entries`}
+            </button>
+          )}
+        </>
+      )}
+    </>
   )
 }
 

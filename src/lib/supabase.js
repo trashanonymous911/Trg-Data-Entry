@@ -45,6 +45,11 @@ export async function saveDailyEntries(entries) {
   console.log('[NDRF] Save successful')
 }
 
+export async function deleteDailyEntry(id) {
+  const { error } = await supabase.from('daily_entries').delete().eq('id', id)
+  if (error) throw new Error(error.message || JSON.stringify(error))
+}
+
 export async function updateTarget(activityName, financialYear, updates) {
   const { data, error } = await supabase
     .from('annual_targets')
